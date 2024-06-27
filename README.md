@@ -4,7 +4,7 @@
 [C#] [LR] Module FakeRank - is a module for the Levels Ranks plugin. It displays Core ranks in the kill table (TAB). This plugin allows the use of any types of ranks, including custom ones created by users.
 
 # Installation
-1. Install [C# Levels Ranks Core](https://github.com/ABKAM2023/CS2-LevelsRanks-Core/tree/v1.0)
+1. Install [C# Levels Ranks Core](https://github.com/ABKAM2023/CS2-LevelsRanks-Core/tree/v1.0) and [FakeRanks-RevealAll](https://github.com/Cruze03/FakeRanks-RevealAll)
 2. Download [C#] [LR] Module - FakeRank
 3. Unpack the archive and upload it to your game server
 4. Configure settings_fakerank.json
@@ -55,7 +55,7 @@ Each ID in the config is the ID from settings_ranks.json.
 [C#] [LR] Модуль FakeRank - это модуль для плагина Levels Ranks. Он показывает ранги Ядра в таблице убийств (ТАБ). В этом плагине можно использовать любые типы званий, включая собственные, созданные пользователями.
 
 # Установка
-1. Установите [C# Levels Ranks Core](https://github.com/ABKAM2023/CS2-LevelsRanks-Core/tree/v1.0)
+1. Установите [C# Levels Ranks Core](https://github.com/ABKAM2023/CS2-LevelsRanks-Core/tree/v1.0) и [FakeRanks-RevealAll](https://github.com/Cruze03/FakeRanks-RevealAll)
 2. Скачайте [C#] [LR] Module - FakeRank
 3. Распакуйте архив и загрузите его на игровой сервер
 4. Настройте settings_fakerank.json
