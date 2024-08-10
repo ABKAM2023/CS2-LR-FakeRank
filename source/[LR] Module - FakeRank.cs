@@ -9,6 +9,7 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Timers;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 
 namespace LevelsRanksModuleFakeRank;
 
@@ -16,13 +17,17 @@ namespace LevelsRanksModuleFakeRank;
 public class LevelsRanksModuleFakeRank : BasePlugin
 {
     public override string ModuleName => "[LR] Module - FakeRank";
-    public override string ModuleVersion => "1.0";
+    public override string ModuleVersion => "1.0.1";
     public override string ModuleAuthor => "ABKAM designed by RoadSide Romeo & Wend4r";
 
     private Dictionary<int, (int competitiveRanking, int competitiveRankType)>? _ranksConfig;
     private readonly Dictionary<string, (int competitiveRanking, int competitiveRankType)> _playerRanks = new();
     private ILevelsRanksApi? _api;
     private readonly PluginCapability<ILevelsRanksApi> _apiCapability = new("levels_ranks");
+    private Dictionary<string, int> _lastKnownLevels = new();
+    private ConcurrentDictionary<string, (int competitiveRanking, int competitiveRankType)> _rankCache = new();
+    private ConcurrentDictionary<string, DateTime> _cacheTimestamps = new();
+    private const float UpdateInterval = 3.0f;
 
     public override void OnAllPluginsLoaded(bool hotReload)
     {
@@ -39,9 +44,9 @@ public class LevelsRanksModuleFakeRank : BasePlugin
         _ranksConfig = LoadRanksConfig();
 
         RegisterListener<Listeners.OnTick>(OnTick);
-        AddTimer(2.0f, () =>
+        AddTimer(UpdateInterval, async () =>
         {
-            var _ = FetchPlayerRanks();
+            await FetchPlayerRanks();
         }, TimerFlags.REPEAT);
     }
 
@@ -99,11 +104,13 @@ public class LevelsRanksModuleFakeRank : BasePlugin
 
         if (config != null && config.TryGetValue("LR_FakeRank", out var fakeRankSection) &&
             fakeRankSection.TryGetValue("FakeRank", out var fakeRanksObject))
+        {
             if (fakeRanksObject is JsonElement fakeRanksElement)
             {
                 int rankType;
                 if (fakeRankSection.TryGetValue("Type", out var typeValue) && typeValue is JsonElement typeElement &&
                     typeElement.GetString() is string typeString && int.TryParse(typeString, out var type))
+                {
                     switch (type)
                     {
                         case 1:
@@ -119,15 +126,23 @@ public class LevelsRanksModuleFakeRank : BasePlugin
                             rankType = 12;
                             break;
                     }
+                }
                 else
+                {
                     rankType = 12;
+                }
 
                 foreach (var rank in fakeRanksElement.EnumerateObject())
+                {
                     if (int.TryParse(rank.Name, out var level) &&
                         rank.Value.GetString() is string competitiveRankingString &&
                         int.TryParse(competitiveRankingString, out var competitiveRanking))
+                    {
                         ranks[level] = (competitiveRanking, rankType);
+                    }
+                }
             }
+        }
 
         return ranks;
     }
@@ -135,46 +150,42 @@ public class LevelsRanksModuleFakeRank : BasePlugin
     private async Task FetchPlayerRanks()
     {
         var players = Utilities.GetPlayers().Where(player => !player.IsBot && player.TeamNum != (int)CsTeam.Spectator);
+        var steamIds = players.Select(player => _api!.ConvertToSteamId(player.SteamID)).ToList();
 
-        var maxConcurrentTasks = 10;
-        var semaphore = new SemaphoreSlim(maxConcurrentTasks);
+        // Получаем только тех игроков, данные которых не находятся в кэше или устарели
+        var playersToFetch = steamIds.Where(steamId => 
+            !_rankCache.TryGetValue(steamId, out var cachedRank) || 
+            !_cacheTimestamps.TryGetValue(steamId, out var cacheTime) || 
+            (DateTime.UtcNow - cacheTime).TotalSeconds >= UpdateInterval)
+            .ToList();
 
-        var tasks = players.Select(async player =>
+        if (playersToFetch.Count == 0)
         {
-            await semaphore.WaitAsync();
-            try
-            {
-                await UpdatePlayerRank(player);
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        });
-
-        await Task.WhenAll(tasks);
-    }
-
-    private Dictionary<string, int> _lastKnownLevels = new();
-
-    private async Task UpdatePlayerRank(CCSPlayerController player)
-    {
-        var steamId64 = player.SteamID;
-        var steamId = _api!.ConvertToSteamId(steamId64);
-        var currentRanks = await _api.GetCurrentRanksAsync();
-
-        if (currentRanks.TryGetValue(steamId, out var currentLevelId))
-        {
-            if (!_lastKnownLevels.TryGetValue(steamId, out var lastLevel) || currentLevelId != lastLevel)
-                if (_ranksConfig != null && _ranksConfig.TryGetValue(currentLevelId, out var rankInfo))
-                {
-                    _playerRanks[steamId] = rankInfo;
-                    _lastKnownLevels[steamId] = currentLevelId;
-                }
+            return; // Все данные в актуальном состоянии, нет необходимости делать запрос
         }
-        else
+
+        // Здесь мы больше не делаем запросы к базе данных, а используем OnlineUsers
+        foreach (var steamId in playersToFetch)
         {
-            Logger.LogWarning($"No rank found for player {steamId} (SteamID64: {steamId64})");
+            if (_api!.OnlineUsers.TryGetValue(steamId, out var onlineUser))
+            {
+                var currentLevelId = onlineUser.Rank;
+
+                if (!_lastKnownLevels.TryGetValue(steamId, out var lastLevel) || currentLevelId != lastLevel)
+                {
+                    if (_ranksConfig != null && _ranksConfig.TryGetValue(currentLevelId, out var rankInfo))
+                    {
+                        _playerRanks[steamId] = rankInfo;
+                        _lastKnownLevels[steamId] = currentLevelId;
+                        _rankCache[steamId] = rankInfo;
+                        _cacheTimestamps[steamId] = DateTime.UtcNow;
+                    }
+                }
+            }
+            else
+            {
+                Logger.LogWarning($"Player {steamId} is not online. Skipping rank update.");
+            }
         }
     }
 
@@ -188,6 +199,7 @@ public class LevelsRanksModuleFakeRank : BasePlugin
             var steamId = _api!.ConvertToSteamId(steamId64);
 
             if (_playerRanks.TryGetValue(steamId, out var rankInfo))
+            {
                 if (player.CompetitiveRankType != (sbyte)rankInfo.competitiveRankType ||
                     player.CompetitiveRanking != rankInfo.competitiveRanking)
                 {
@@ -195,8 +207,10 @@ public class LevelsRanksModuleFakeRank : BasePlugin
                     player.CompetitiveRanking = rankInfo.competitiveRanking;
                     player.CompetitiveWins = 777;
                 }
+            }
         }
     }
+
     [ConsoleCommand("css_lvl_reload", "Reloads the configuration files")]
     public void ReloadConfigsCommand(CCSPlayerController? player, CommandInfo command)
     {
@@ -204,7 +218,10 @@ public class LevelsRanksModuleFakeRank : BasePlugin
         {
             try
             {
-                LoadRanksConfig();
+                _ranksConfig = LoadRanksConfig();
+                _rankCache.Clear();
+                _cacheTimestamps.Clear();
+                _lastKnownLevels.Clear();
             }
             catch (Exception ex)
             {
