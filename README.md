@@ -1,3 +1,6 @@
+![GitHub Repo stars](https://img.shields.io/github/stars/ABKAM2023/CS2-LR-FakeRank?style=for-the-badge)
+![GitHub all releases](https://img.shields.io/github/downloads/ABKAM2023/CS2-LR-FakeRank/total?style=for-the-badge)
+
 # EN
 **This plugin may result in a token ban.**
 
