@@ -21,7 +21,7 @@ namespace LevelsRanksModuleFakeRank
     public class LevelsRanksModuleFakeRank : BasePlugin
     {
         public override string ModuleName => "[LR] Module - FakeRank";
-        public override string ModuleVersion => "1.0.3";
+        public override string ModuleVersion => "1.0.3-fix";
         public override string ModuleAuthor => "ABKAM designed by RoadSide Romeo & Wend4r";
 
         private Dictionary<int, (int competitiveRanking, int competitiveRankType)>? _ranksConfig;
@@ -38,7 +38,11 @@ namespace LevelsRanksModuleFakeRank
             _isCustomRankActive = new();
 
         private const float UpdateInterval = 1.0f;
-
+        private const float RevealAllInterval = 2.0f;
+        
+        private const string UM_ServerRankRevealAllName = "CCSUsrMsg_ServerRankRevealAll";
+        
+        
         public override void Load(bool hotReload)
         {
             _playerRankApi = new PlayerRankApi(this);
@@ -61,6 +65,7 @@ namespace LevelsRanksModuleFakeRank
 
             RegisterListener<Listeners.OnTick>(OnTick);
             AddTimer(UpdateInterval, async () => { await FetchPlayerRanks(); }, TimerFlags.REPEAT);
+            AddTimer(RevealAllInterval, SendServerRankRevealAll, TimerFlags.REPEAT);
         }
 
         private async Task FetchPlayerRanks()
@@ -107,13 +112,30 @@ namespace LevelsRanksModuleFakeRank
             }
         }
 
+        private void SendServerRankRevealAll()
+        {
+            var humanPlayers = Utilities.GetPlayers().Where(p => p != null && p.IsValid && !p.IsBot).ToList();
+            if (humanPlayers.Count == 0)
+            {
+                return;
+            }
+
+            using var um = UserMessage.FromPartialName(UM_ServerRankRevealAllName);
+
+            var filter = new RecipientFilter();
+            foreach (var p in humanPlayers)
+            {
+                filter.Add(p);
+            }
+
+            um.Send(filter);
+        }
+
         private void OnTick()
         {
             var players = Utilities.GetPlayers()
                 .Where(player => !player.IsBot && player.TeamNum != (int)CsTeam.Spectator);
 
-            var filter = new RecipientFilter();
-            
             foreach (var player in players)
             {
                 var steamId64 = player.SteamID;
@@ -129,7 +151,10 @@ namespace LevelsRanksModuleFakeRank
                         player.CompetitiveRankType = (sbyte)customRank.RankType;
                         player.CompetitiveRanking = customRank.Rank;
                         player.CompetitiveWins = 777;
-                        filter.Add(player);
+
+                        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRankType");
+                        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRanking");
+                        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveWins");
                     }
                 }
                 else
@@ -142,16 +167,13 @@ namespace LevelsRanksModuleFakeRank
                             player.CompetitiveRankType = (sbyte)rankInfo.competitiveRankType;
                             player.CompetitiveRanking = rankInfo.competitiveRanking;
                             player.CompetitiveWins = 777;
-                            filter.Add(player);
+
+                            Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRankType");
+                            Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRanking");
+                            Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveWins");
                         }
                     }
                 }
-            }
-
-            if (filter.Count > 0)
-            {
-                var msg = UserMessage.FromId(350);
-                msg.Send(filter);
             }
         }
 
